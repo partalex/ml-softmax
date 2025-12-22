@@ -1,2 +1,5 @@
 # dev dependecy
 mypy~=1.19.0
+
+numpy
+scikit-learn

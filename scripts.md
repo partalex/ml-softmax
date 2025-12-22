@@ -15,3 +15,9 @@ python3 src/main.py
 ```bash
 pandoc README.md -o out/report.pdf
 ```
+
+## Git commands
+
+```bash  
+git add -u; git commit --amend --no-edit; git push --force-with-lease
+```
