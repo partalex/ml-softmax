@@ -45,12 +45,7 @@ def train_softmax_reference(
     print(f"Val accuracy:   {val_acc:.4f}")
 
 
-# ============================================================
-# Main
-# ============================================================
-
-
-def main() -> None:
+if __name__ == "__main__":
     X, y = load_multiclass_csv(INPUT_FILE)
 
     X_train, X_val, y_train, y_val = train_test_split(
@@ -62,7 +57,3 @@ def main() -> None:
     )
 
     train_softmax_reference(X_train, y_train, X_val, y_val)
-
-
-if __name__ == "__main__":
-    main()
