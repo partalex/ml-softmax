@@ -12,33 +12,33 @@ from src.shared import load_multiclass_csv, INPUT_FILE
 # ============================================================
 
 def train_softmax_reference(
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_val: np.ndarray,
-        y_val: np.ndarray
+        features_train: np.ndarray,
+        labels_train: np.ndarray,
+        features_val: np.ndarray,
+        labels_val: np.ndarray
 ) -> None:
     """
     Train and evaluate a reference softmax classifier using sklearn.
     Args:
-        X_train (np.ndarray): Training feature matrix.
-        y_train (np.ndarray): Training label vector.
-        X_val (np.ndarray): Validation feature matrix.
-        y_val (np.ndarray): Validation label vector.
+        features_train (np.ndarray): Training feature matrix.
+        labels_train (np.ndarray): Training label vector.
+        features_val (np.ndarray): Validation feature matrix.
+        labels_val (np.ndarray): Validation label vector.
     """
     model = LogisticRegression(
-        multi_class="multinomial",
+        # multi_class="multinomial",
         solver="lbfgs",
         max_iter=1000,
         random_state=0,
     )
 
-    model.fit(X_train, y_train)
+    model.fit(features_train, labels_train)
 
-    y_train_pred: np.ndarray = model.predict(X_train)
-    y_val_pred: np.ndarray = model.predict(X_val)
+    y_train_pred: np.ndarray = model.predict(features_train)
+    y_val_pred: np.ndarray = model.predict(features_val)
 
-    train_acc: float = accuracy_score(y_train, y_train_pred)
-    val_acc: float = accuracy_score(y_val, y_val_pred)
+    train_acc: float = accuracy_score(labels_train, y_train_pred)
+    val_acc: float = accuracy_score(labels_val, y_val_pred)
 
     print("=== Reference Softmax (sklearn) ===")
     print(f"Train accuracy: {train_acc:.4f}")
@@ -46,14 +46,14 @@ def train_softmax_reference(
 
 
 if __name__ == "__main__":
-    X, y = load_multiclass_csv(INPUT_FILE)
+    features, labels = load_multiclass_csv(INPUT_FILE)
 
-    X_train, X_val, y_train, y_val = train_test_split(
-        X,
-        y,
+    features_train, features_val, labels_train, labels_val = train_test_split(
+        features,
+        labels,
         test_size=0.2,
         random_state=42,
-        stratify=y,
+        stratify=labels,
     )
 
-    train_softmax_reference(X_train, y_train, X_val, y_val)
+    train_softmax_reference(features_train, labels_train, features_val, labels_val)

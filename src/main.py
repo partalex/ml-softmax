@@ -10,32 +10,32 @@ from src.shared import load_multiclass_csv, INPUT_FILE
 
 
 def train_val_split(
-        X: np.ndarray,
-        y: np.ndarray,
+        features: np.ndarray,
+        labels: np.ndarray,
         val_ratio: float = 0.2,
         seed: int = 42
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Split the dataset into training and validation sets.
     Args:
-        X (np.ndarray): Feature matrix of shape (n_samples, n_features).
-        y (np.ndarray): Label vector of shape (n_samples,).
+        features (np.ndarray): Feature matrix of shape (n_samples, n_features).
+        labels (np.ndarray): Label vector of shape (n_samples,).
         val_ratio (float): Proportion of the dataset to include in the validation split.
         seed (int): Random seed for reproducibility.
     Returns:
-        X_train (np.ndarray): Training feature matrix.
+        x_train (np.ndarray): Training feature matrix.
         y_train (np.ndarray): Training label vector.
-        X_val (np.ndarray): Validation feature matrix.
+        x_val (np.ndarray): Validation feature matrix.
         y_val (np.ndarray): Validation label vector.
     """
     rng = np.random.default_rng(seed)
-    indices: np.ndarray = rng.permutation(len(X))
+    indices: np.ndarray = rng.permutation(len(features))
 
-    split: int = int(len(X) * (1.0 - val_ratio))
+    split: int = int(len(features) * (1.0 - val_ratio))
     train_idx: np.ndarray = indices[:split]
     val_idx: np.ndarray = indices[split:]
 
-    return X[train_idx], y[train_idx], X[val_idx], y[val_idx]
+    return features[train_idx], labels[train_idx], features[val_idx], labels[val_idx]
 
 
 # ============================================================
@@ -60,59 +60,59 @@ class SoftmaxClassifier:
         exp_logits: np.ndarray = np.exp(logits)
         return exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
 
-    def forward(self, X: np.ndarray) -> np.ndarray:
+    def forward(self, features: np.ndarray) -> np.ndarray:
         """
         Forward pass to compute class probabilities.
         Args:
-            X (np.ndarray): Feature matrix of shape (n_samples, n_features).
+            features (np.ndarray): Feature matrix of shape (n_samples, n_features).
         Returns:
             np.ndarray: Class probabilities of shape (n_samples, n_classes).
         """
-        logits: np.ndarray = X @ self.W + self.b
+        logits: np.ndarray = features @ self.W + self.b
         return self._softmax(logits)
 
-    def loss(self, X: np.ndarray, y: np.ndarray) -> float:
+    def loss(self, features: np.ndarray, labels: np.ndarray) -> float:
         """
         Compute the cross-entropy loss.
         Args:
-            X (np.ndarray): Feature matrix of shape (n_samples, n_features).
-            y (np.ndarray): True labels of shape (n_samples,).
+            features (np.ndarray): Feature matrix of shape (n_samples, n_features).
+            labels (np.ndarray): True labels of shape (n_samples,).
         Returns:
             float: Cross-entropy loss.
         """
-        probs: np.ndarray = self.forward(X)
-        n: int = X.shape[0]
-        log_likelihood: np.ndarray = -np.log(probs[np.arange(n), y] + 1e-12)
+        probs: np.ndarray = self.forward(features)
+        n: int = features.shape[0]
+        log_likelihood: np.ndarray = -np.log(probs[np.arange(n), labels] + 1e-12)
         return float(np.mean(log_likelihood))
 
-    def accuracy(self, X: np.ndarray, y: np.ndarray) -> float:
+    def accuracy(self, features: np.ndarray, labels: np.ndarray) -> float:
         """
         Compute the accuracy of the model on the given data.
         Args:
-            X (np.ndarray): Feature matrix of shape (n_samples, n_features).
-            y (np.ndarray): True labels of shape (n_samples,).
+            features (np.ndarray): Feature matrix of shape (n_samples, n_features).
+            labels (np.ndarray): True labels of shape (n_samples,).
         Returns:
             float: Accuracy as a float between 0 and 1.
         """
-        probs: np.ndarray = self.forward(X)
+        probs: np.ndarray = self.forward(features)
         preds: np.ndarray = np.argmax(probs, axis=1)
-        return float(np.mean(preds == y))
+        return float(np.mean(preds == labels))
 
-    def gradients(self, X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def gradients(self, features: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
         Compute the gradients of the loss with respect to weights and biases.
         Args:
-            X (np.ndarray): Feature matrix of shape (n_samples, n_features).
-            y (np.ndarray): True labels of shape (n_samples,).
+            features (np.ndarray): Feature matrix of shape (n_samples, n_features).
+            labels (np.ndarray): True labels of shape (n_samples,).
         Returns:
             tuple[np.ndarray, np.ndarray]: Gradients of weights and biases.
         """
-        n: int = X.shape[0]
-        probs: np.ndarray = self.forward(X)
-        probs[np.arange(n), y] -= 1.0
+        n: int = features.shape[0]
+        probs: np.ndarray = self.forward(features)
+        probs[np.arange(n), labels] -= 1.0
         probs /= n
 
-        dW: np.ndarray = X.T @ probs
+        dW: np.ndarray = features.T @ probs
         db: np.ndarray = np.sum(probs, axis=0)
 
         return dW, db
@@ -135,10 +135,10 @@ class SoftmaxClassifier:
 
 def train(
         model: SoftmaxClassifier,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_val: np.ndarray,
-        y_val: np.ndarray,
+        features_train: np.ndarray,
+        labels_train: np.ndarray,
+        features_val: np.ndarray,
+        labels_val: np.ndarray,
         learning_rate: float,
         batch_size: int,
         epochs: int,
@@ -148,10 +148,10 @@ def train(
     Train the SoftmaxClassifier using mini-batch SGD.
     Args:
         model (SoftmaxClassifier): The model to train.
-        X_train (np.ndarray): Training feature matrix.
-        y_train (np.ndarray): Training label vector.
-        X_val (np.ndarray): Validation feature matrix.
-        y_val (np.ndarray): Validation label vector.
+        features_train (np.ndarray): Training feature matrix.
+        labels_train (np.ndarray): Training label vector.
+        features_val (np.ndarray): Validation feature matrix.
+        labels_val (np.ndarray): Validation label vector.
         learning_rate (float): Learning rate.
         batch_size (int): Size of each mini-batch.
         epochs (int): Number of training epochs.
@@ -167,7 +167,7 @@ def train(
         "epoch_time": [],
     }
 
-    n: int = len(X_train)
+    n: int = len(features_train)
 
     for epoch in range(epochs):
         start_time: float = time.time()
@@ -178,16 +178,16 @@ def train(
             end: int = start + batch_size
             batch_idx: np.ndarray = indices[start:end]
 
-            X_batch: np.ndarray = X_train[batch_idx]
-            y_batch: np.ndarray = y_train[batch_idx]
+            X_batch: np.ndarray = features_train[batch_idx]
+            y_batch: np.ndarray = labels_train[batch_idx]
 
             dW, db = model.gradients(X_batch, y_batch)
             model.update(dW, db, learning_rate)
 
         epoch_time: float = time.time() - start_time
 
-        train_loss: float = model.loss(X_train, y_train)
-        val_acc: float = model.accuracy(X_val, y_val)
+        train_loss: float = model.loss(features_train, labels_train)
+        val_acc: float = model.accuracy(features_val, labels_val)
 
         history["train_loss"].append(train_loss)
         history["val_acc"].append(val_acc)
@@ -198,30 +198,33 @@ def train(
     return history
 
 
-BATCH_SIZE: int = 16
+BATCH_SIZE: int = 32  # mb
+# BATCH_SIZE: list[int] = [8, 16, 32, 64, 128]
 EPOCHS: int = 100
-LEARNING_RATE: float = 0.1
+LEARNING_RATE: float = 0.1  # alpha
+# LEARNING_RATE: list[float] = [0.001, 0.01, 0.1, 0.5, 1]
 
 if __name__ == "__main__":
-    X, y = load_multiclass_csv(INPUT_FILE)
+    features, labels = load_multiclass_csv(INPUT_FILE)
 
-    X_train, y_train, X_val, y_val = train_val_split(X, y)
+    # todo: make also test sets
+    x_train, y_train, x_val, y_val = train_val_split(features, labels)
 
-    n_features: int = X.shape[1]
-    n_classes: int = int(np.max(y)) + 1
+    n_features = features.shape[1]
+    n_classes = int(np.max(labels)) + 1
 
     model = SoftmaxClassifier(n_features, n_classes)
 
     history = train(
         model=model,
-        X_train=X_train,
-        y_train=y_train,
-        X_val=X_val,
-        y_val=y_val,
+        features_train=x_train,
+        labels_train=y_train,
+        features_val=x_val,
+        labels_val=y_val,
         learning_rate=LEARNING_RATE,
         batch_size=BATCH_SIZE,
         epochs=EPOCHS,
     )
 
-    print("Final train accuracy:", model.accuracy(X_train, y_train))
-    print("Final val accuracy:", model.accuracy(X_val, y_val))
+    print("Final train accuracy:", model.accuracy(x_train, y_train))
+    print("Final val accuracy:", model.accuracy(x_val, y_val))
