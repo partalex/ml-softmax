@@ -1,9 +1,10 @@
-import os
 import time
+import os
+import csv
 import numpy as np
 import matplotlib.pyplot as plt
 
-from src.shared import load_multiclass_csv, INPUT_FILE
+from src.shared import load_multiclass_csv, INPUT_FILE, RES_DIR, PLOT_DIR
 
 
 # ============================================================
@@ -52,6 +53,39 @@ def train_val_test_split(
 
 
 # ============================================================
+# Convergence estimation
+# ============================================================
+
+def estimate_convergence_epoch(
+        val_acc: list[float],
+        tail: int = 5,
+        tol: float = 0.002
+) -> int:
+    """
+    Estimate epoch of convergence as the first epoch where val_acc reaches
+    a value close to the final value.
+
+    final_value = mean of last `tail` epochs
+    converged when val_acc >= final_value - tol
+
+    Returns:
+        int: epoch index (1-based)
+    """
+    if len(val_acc) == 0:
+        return 0
+
+    tail = min(tail, len(val_acc))
+    final_value = float(np.mean(val_acc[-tail:]))
+    threshold = final_value - tol
+
+    for i, a in enumerate(val_acc):
+        if a >= threshold:
+            return i + 1  # 1-based
+
+    return len(val_acc)
+
+
+# ============================================================
 # Softmax classifier
 # ============================================================
 
@@ -63,79 +97,29 @@ class SoftmaxClassifier:
 
     @staticmethod
     def _softmax(logits: np.ndarray) -> np.ndarray:
-        """
-        Compute the softmax probabilities.
-
-        Args:
-            logits (np.ndarray): Logits of shape (n_samples, n_classes).
-
-
-            np.ndarray: Softmax probabilities of shape (n_samples, n_classes).
-        """
-        logits = logits - np.max(logits, axis=1, keepdims=True)  # numeric stability
+        logits = logits - np.max(logits, axis=1, keepdims=True)
         exp_logits: np.ndarray = np.exp(logits)
         return exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
 
     def forward(self, features: np.ndarray) -> np.ndarray:
-        """
-        Forward pass to compute class probabilities.
-
-        Args:
-            features (np.ndarray): Feature matrix of shape (n_samples, n_features).
-
-        Returns:
-            np.ndarray: Class probabilities of shape (n_samples, n_classes).
-        """
         logits: np.ndarray = features @ self.W + self.b
         return self._softmax(logits)
 
     def loss(self, features: np.ndarray, labels: np.ndarray) -> float:
-        """
-        Compute the cross-entropy loss for integer class labels.
-
-        Args:
-            features (np.ndarray): Feature matrix of shape (n_samples, n_features).
-            labels (np.ndarray): True labels (class indices) of shape (n_samples,).
-
-        Returns:
-            float: Mean cross-entropy loss.
-        """
         probs: np.ndarray = self.forward(features)
         n: int = features.shape[0]
-        # add epsilon for numeric stability
         log_likelihood: np.ndarray = -np.log(probs[np.arange(n), labels] + 1e-12)
         return float(np.mean(log_likelihood))
 
     def accuracy(self, features: np.ndarray, labels: np.ndarray) -> float:
-        """
-        Compute the accuracy of the model.
-
-        Args:
-            features (np.ndarray): Feature matrix of shape (n_samples, n_features).
-            labels (np.ndarray): True labels (class indices) of shape (n_samples,).
-
-        Returns:
-            float: Accuracy in [0, 1].
-        """
         probs: np.ndarray = self.forward(features)
         preds: np.ndarray = np.argmax(probs, axis=1)
         return float(np.mean(preds == labels))
 
     def gradients(self, features: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Compute gradients of the loss w.r.t. W and b.
-
-        Args:
-            features (np.ndarray): Feature matrix of shape (n_samples, n_features).
-            labels (np.ndarray): True labels (class indices) of shape (n_samples,).
-
-        Returns:
-            (dW, db): Gradients for weights and biases.
-        """
         n: int = features.shape[0]
         probs: np.ndarray = self.forward(features)
 
-        # dL/dlogits = probs - one_hot(labels)
         probs[np.arange(n), labels] -= 1.0
         probs /= n
 
@@ -145,14 +129,6 @@ class SoftmaxClassifier:
         return dW, db
 
     def update(self, dW: np.ndarray, db: np.ndarray, lr: float) -> None:
-        """
-        Update parameters using gradient descent.
-
-        Args:
-            dW (np.ndarray): Gradient of weights.
-            db (np.ndarray): Gradient of biases.
-            lr (float): Learning rate.
-        """
         self.W -= lr * dW
         self.b -= lr * db
 
@@ -172,13 +148,6 @@ def train(
         epochs: int,
         seed: int = 0
 ) -> dict[str, list[float]]:
-    """
-    Train the SoftmaxClassifier using mini-batch SGD.
-
-    Returns:
-        history dict with keys:
-            train_loss, train_acc, val_acc, epoch_time
-    """
     rng = np.random.default_rng(seed)
 
     history: dict[str, list[float]] = {
@@ -225,30 +194,21 @@ def train(
 
 
 # ============================================================
-# Plotting
+# Plotting + saving
 # ============================================================
 
 def plot_history(
         history: dict[str, list[float]],
+        save: bool,
         out_dir: str,
         prefix: str,
-        save: bool = False,
 ) -> None:
-    """
-    Plot training history and optionally save plots to disk.
-
-    Args:
-        history (dict[str, list[float]]): Training history.
-        save (bool): Whether to save plots.
-        out_dir (str): Output directory for plots.
-        prefix (str): Filename prefix.
-    """
     epochs = np.arange(1, len(history["train_loss"]) + 1)
 
     if save:
         os.makedirs(out_dir, exist_ok=True)
 
-    # ---------- LOSS ----------
+    # LOSS
     plt.figure()
     plt.plot(epochs, history["train_loss"])
     plt.xlabel("Epoch")
@@ -257,13 +217,9 @@ def plot_history(
     plt.grid(True)
 
     if save:
-        plt.savefig(
-            os.path.join(out_dir, f"{prefix}_train_loss.png"),
-            dpi=150,
-            bbox_inches="tight"
-        )
+        plt.savefig(os.path.join(out_dir, f"{prefix}_train_loss.png"), dpi=150, bbox_inches="tight")
 
-    # ---------- ACCURACY ----------
+    # ACCURACY
     plt.figure()
     plt.plot(epochs, history["train_acc"], label="train_acc")
     plt.plot(epochs, history["val_acc"], label="val_acc")
@@ -274,24 +230,51 @@ def plot_history(
     plt.grid(True)
 
     if save:
-        plt.savefig(
-            os.path.join(out_dir, f"{prefix}_accuracy.png"),
-            dpi=150,
-            bbox_inches="tight"
-        )
+        plt.savefig(os.path.join(out_dir, f"{prefix}_accuracy.png"), dpi=150, bbox_inches="tight")
 
     plt.show()
 
 
 # ============================================================
-# Hyperparameters
+# Tables (console + CSV)
 # ============================================================
 
-# BATCH_SIZE: int = 32
-# EPOCHS: int = 100
-# LEARNING_RATE: float = 0.1
+def print_float_table(title: str, table: np.ndarray, learning_rates: list[float], batch_sizes: list[int],
+                      fmt: str) -> None:
+    print("\n" + title)
+    header = "lr\\bs | " + " | ".join(f"{bs:>10d}" for bs in batch_sizes)
+    print(header)
+    print("-" * len(header))
+    for i, lr in enumerate(learning_rates):
+        row = f"{lr:<5} | " + " | ".join(f"{table[i, j]:{fmt}}" for j in range(len(batch_sizes)))
+        print(row)
+
+
+def print_int_table(title: str, table: np.ndarray, learning_rates: list[float], batch_sizes: list[int]) -> None:
+    print("\n" + title)
+    header = "lr\\bs | " + " | ".join(f"{bs:>10d}" for bs in batch_sizes)
+    print(header)
+    print("-" * len(header))
+    for i, lr in enumerate(learning_rates):
+        row = f"{lr:<5} | " + " | ".join(f"{int(table[i, j]):>10d}" for j in range(len(batch_sizes)))
+        print(row)
+
+
+def save_table_csv(path: str, table: np.ndarray, learning_rates: list[float], batch_sizes: list[int]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["lr\\bs"] + batch_sizes)
+        for i, lr in enumerate(learning_rates):
+            writer.writerow([lr] + list(table[i, :]))
+
+
+# ============================================================
+# Hyperparameters grid
+# ============================================================
+
 BATCH_SIZES: list[int] = [8, 16, 32, 64, 128]
-LEARNING_RATES: list[float] = [0.001, 0.01, 0.1, 0.5, 1]
+LEARNING_RATES: list[float] = [0.001, 0.01, 0.1, 0.5, 1.0]
 EPOCHS: int = 100
 
 # ============================================================
@@ -305,19 +288,22 @@ if __name__ == "__main__":
         features, labels, val_ratio=0.2, test_ratio=0.1, seed=42
     )
 
-    n_features = features.shape[1]
-    n_classes = int(np.max(labels)) + 1
+    n_features: int = features.shape[1]
+    n_classes: int = int(np.max(labels)) + 1
 
-    model = SoftmaxClassifier(n_features, n_classes, seed=42)
+    # Tables: rows = learning rates, cols = batch sizes
+    avg_epoch_time_table = np.zeros((len(LEARNING_RATES), len(BATCH_SIZES)), dtype=np.float64)
+    conv_epoch_table = np.zeros((len(LEARNING_RATES), len(BATCH_SIZES)), dtype=np.int64)
+    total_time_to_conv_table = np.zeros((len(LEARNING_RATES), len(BATCH_SIZES)), dtype=np.float64)
+    max_val_acc_table = np.zeros((len(LEARNING_RATES), len(BATCH_SIZES)), dtype=np.float64)
 
-    best_val_acc: float = 0.0
-    best_params: dict[str, float | int] = {}
-    results: list[dict[str, float | int]] = []
+    best_val_acc: float = -1.0
+    best_params: dict[str, float | int] = {"learning_rate": 0.0, "batch_size": 0}
 
-    for batch_size in BATCH_SIZES:
-        for lr in LEARNING_RATES:
-            print("=" * 60)
-            print(f"Training with batch_size={batch_size}, learning_rate={lr}")
+    for i_lr, lr in enumerate(LEARNING_RATES):
+        for j_bs, bs in enumerate(BATCH_SIZES):
+            print("\n" + "=" * 70)
+            print(f"Training: lr={lr}, batch_size={bs}")
 
             model = SoftmaxClassifier(n_features, n_classes, seed=42)
 
@@ -328,30 +314,104 @@ if __name__ == "__main__":
                 features_val=x_val,
                 labels_val=y_val,
                 learning_rate=lr,
-                batch_size=batch_size,
+                batch_size=bs,
                 epochs=EPOCHS,
                 seed=0,
             )
-            plot_history(
-                history,
-                out_dir="../out/graph",
-                prefix=f"res_lr{lr}_bs{batch_size}",
-                save=True,
-            )
 
-            max_val_acc = max(history["val_acc"])
+            # average epoch time
+            avg_epoch_time = float(np.mean(history["epoch_time"]))
+            avg_epoch_time_table[i_lr, j_bs] = avg_epoch_time
 
-            results.append({"batch_size": batch_size, "learning_rate": lr, "max_val_acc": max_val_acc})
+            # convergence epoch estimate (based on val_acc reaching near-final value)
+            conv_epoch = estimate_convergence_epoch(history["val_acc"], tail=5, tol=0.002)
+            conv_epoch_table[i_lr, j_bs] = conv_epoch
+
+            # total time to convergence
+            total_time_to_conv = avg_epoch_time * conv_epoch
+            total_time_to_conv_table[i_lr, j_bs] = total_time_to_conv
+
+            # max validation accuracy (for selecting best params)
+            max_val_acc = float(np.max(history["val_acc"]))
+            max_val_acc_table[i_lr, j_bs] = max_val_acc
 
             if max_val_acc > best_val_acc:
                 best_val_acc = max_val_acc
-                best_params = {"batch_size": batch_size, "learning_rate": lr}
+                best_params = {"learning_rate": lr, "batch_size": bs}
 
-            print(f"Finished: batch_size={batch_size}, lr={lr} | best_val_acc={max_val_acc:.4f}")
+            print(
+                f"avg_epoch_time={avg_epoch_time:.4f}s | conv_epoch={conv_epoch} | total_to_conv={total_time_to_conv:.2f}s")
+            print(f"max_val_acc={max_val_acc:.4f}")
 
-    print("\n" + "#" * 60)
-    print("BEST HYPERPARAMETERS FOUND")
-    print(f"Batch size     : {best_params['batch_size']}")
-    print(f"Learning rate  : {best_params['learning_rate']}")
-    print(f"Best val acc   : {best_val_acc:.4f}")
-    print("#" * 60)
+    # ----- Print tables -----
+    print_float_table(
+        title="Average epoch time (s)  [rows=learning_rate, cols=batch_size]",
+        table=avg_epoch_time_table,
+        learning_rates=LEARNING_RATES,
+        batch_sizes=BATCH_SIZES,
+        fmt=">10.4f"
+    )
+
+    print_int_table(
+        title="Epochs to convergence  [rows=learning_rate, cols=batch_size]",
+        table=conv_epoch_table,
+        learning_rates=LEARNING_RATES,
+        batch_sizes=BATCH_SIZES
+    )
+
+    print_float_table(
+        title="Total time to convergence (s)  [rows=learning_rate, cols=batch_size]",
+        table=total_time_to_conv_table,
+        learning_rates=LEARNING_RATES,
+        batch_sizes=BATCH_SIZES,
+        fmt=">10.2f"
+    )
+
+    print_float_table(
+        title="Max validation accuracy  [rows=learning_rate, cols=batch_size]",
+        table=max_val_acc_table,
+        learning_rates=LEARNING_RATES,
+        batch_sizes=BATCH_SIZES,
+        fmt=">10.4f"
+    )
+
+    # ----- Save tables -----
+    save_table_csv(f"{RES_DIR}/avg_epoch_time.csv", avg_epoch_time_table, LEARNING_RATES, BATCH_SIZES)
+    save_table_csv(f"{RES_DIR}/epochs_to_convergence.csv", conv_epoch_table, LEARNING_RATES, BATCH_SIZES)
+    save_table_csv(f"{RES_DIR}/total_time_to_convergence.csv", total_time_to_conv_table, LEARNING_RATES, BATCH_SIZES)
+    save_table_csv(f"{RES_DIR}/max_val_acc.csv", max_val_acc_table, LEARNING_RATES, BATCH_SIZES)
+
+    print("\n" + "#" * 70)
+    print("BEST CONFIGURATION (by max val accuracy)")
+    print(f"learning_rate = {best_params['learning_rate']}")
+    print(f"batch_size    = {best_params['batch_size']}")
+    print(f"max_val_acc   = {best_val_acc:.4f}")
+    print("#" * 70)
+
+    # ----- Final training with best params -----
+    best_lr = float(best_params["learning_rate"])
+    best_bs = int(best_params["batch_size"])
+
+    final_model = SoftmaxClassifier(n_features, n_classes, seed=42)
+    final_history = train(
+        model=final_model,
+        features_train=x_train,
+        labels_train=y_train,
+        features_val=x_val,
+        labels_val=y_val,
+        learning_rate=best_lr,
+        batch_size=best_bs,
+        epochs=EPOCHS,
+        seed=0,
+    )
+
+    plot_history(
+        final_history,
+        save=True,
+        out_dir=f"{PLOT_DIR}",
+        prefix=f"best_lr{best_lr}_bs{best_bs}"
+    )
+
+    print("Final train accuracy:", final_model.accuracy(x_train, y_train))
+    print("Final val accuracy:", final_model.accuracy(x_val, y_val))
+    print("Final test accuracy:", final_model.accuracy(x_test, y_test))

@@ -2,6 +2,8 @@ import csv
 import numpy as np
 
 INPUT_FILE: str = "../res/multiclass_data.csv"
+RES_DIR: str = "../out/res"
+PLOT_DIR: str = f"{RES_DIR}/plots"
 
 
 def load_multiclass_csv(path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -27,24 +29,3 @@ def load_multiclass_csv(path: str) -> tuple[np.ndarray, np.ndarray]:
     labels: np.ndarray = data_np[:, -1].astype(np.int64)
 
     return features, labels
-
-
-def cross_entropy_loss(
-        y_true: np.float64,
-        y_pred: np.float64
-) -> float:
-    """
-   Compute the categorical cross-entropy loss.
-   Args:
-       y_true (np.ndarray):
-           Ground truth labels encoded as one-hot vectors.
-           Shape: (n_samples, n_classes).
-       y_pred (np.ndarray):
-           Predicted class probabilities (after softmax).
-           Shape: (n_samples, n_classes).
-   Returns:
-       loss (float): Mean cross-entropy loss over all samples.
-   """
-    epsilon: float = 1e-15
-    y_pred = np.clip(y_pred, epsilon, 1.0 - epsilon)
-    return float(-np.mean(np.sum(y_true * np.log(y_pred), axis=1)))
